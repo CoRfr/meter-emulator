@@ -9,4 +9,4 @@ build/
 .ruff_cache/
 *.egg
 .env
-config.yaml
+/config.yaml

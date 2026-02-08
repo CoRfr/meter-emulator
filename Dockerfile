@@ -15,9 +15,12 @@ FROM python:3.12-slim
 WORKDIR /app
 COPY --from=builder /app/.venv .venv
 COPY --from=builder /app/src src
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 80
 
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["uvicorn", "meter_emulator.main:app", "--host", "0.0.0.0", "--port", "80"]

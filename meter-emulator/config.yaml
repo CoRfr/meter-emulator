@@ -1,0 +1,28 @@
+name: Meter Emulator
+description: >-
+  Energy meter emulator with pluggable frontends and backends.
+  Emulates a Shelly Pro 3EM using Enphase Envoy data, enabling
+  devices like the Marstek Venus-E to work with Enphase systems.
+version: "0.1.0"
+slug: meter-emulator
+url: https://github.com/CoRfr/meter-emulator
+image: ghcr.io/corfr/meter-emulator
+arch:
+  - amd64
+  - aarch64
+host_network: true
+options:
+  shelly_phases: 1
+  shelly_mdns: true
+  envoy_host: ""
+  envoy_token: ""
+  envoy_poll_interval: 2.0
+  envoy_verify_ssl: false
+schema:
+  shelly_mac: "str?"
+  shelly_phases: int
+  shelly_mdns: bool
+  envoy_host: str
+  envoy_token: password
+  envoy_poll_interval: float
+  envoy_verify_ssl: bool
