@@ -1,0 +1,21 @@
+server:
+  host: "0.0.0.0"
+  port: 80
+
+frontend:
+  type: shelly
+  shelly:
+    # Fake MAC address for device identification (auto-generated if omitted)
+    # mac: "AABBCCDDEEFF"
+    # Number of phases: 1 or 3
+    phases: 1
+    mdns: true
+
+backend:
+  type: envoy
+  envoy:
+    host: "192.168.1.100"
+    # JWT token for Envoy firmware >= 7.0, supports ${ENV_VAR} substitution
+    token: "${ENVOY_TOKEN}"
+    poll_interval: 2.0
+    verify_ssl: false

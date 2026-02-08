@@ -1,0 +1,231 @@
+"""Shelly Pro 3EM frontend — HTTP API, response models, and mDNS advertisement."""
+
+import logging
+import socket
+import uuid
+from typing import Any
+
+from fastapi import APIRouter
+from zeroconf import ServiceInfo, Zeroconf
+
+from meter_emulator.backends.base import Backend, MeterData
+from meter_emulator.frontends.base import Frontend
+
+logger = logging.getLogger(__name__)
+
+# ── Shelly device constants ──────────────────────────────────────────
+
+SHELLY_MODEL = "SPEM-003CEBEU"
+SHELLY_GEN = 2
+SHELLY_APP = "Pro3EM"
+SHELLY_FW = "1.4.4-g6d2a586"
+
+
+# ── Response builders ────────────────────────────────────────────────
+
+
+def device_info(mac: str) -> dict[str, Any]:
+    """Build Shelly device info response."""
+    device_id = f"shellypro3em-{mac.lower()}"
+    return {
+        "name": "Shelly Pro 3EM Emulator",
+        "id": device_id,
+        "mac": mac,
+        "slot": 0,
+        "model": SHELLY_MODEL,
+        "gen": SHELLY_GEN,
+        "fw_id": SHELLY_FW,
+        "ver": SHELLY_FW,
+        "app": SHELLY_APP,
+        "auth_en": False,
+        "auth_domain": None,
+    }
+
+
+def _phase_key(index: int) -> str:
+    """Return phase letter for index: 0->a, 1->b, 2->c."""
+    return chr(ord("a") + index)
+
+
+def em_get_status(data: MeterData) -> dict[str, Any]:
+    """Build EM.GetStatus response (real-time power)."""
+    result: dict[str, Any] = {"id": 0}
+
+    for i, phase in enumerate(data.phases):
+        key = _phase_key(i)
+        result[f"{key}_current"] = round(phase.current, 3)
+        result[f"{key}_voltage"] = round(phase.voltage, 1)
+        result[f"{key}_act_power"] = round(phase.act_power, 1)
+        result[f"{key}_aprt_power"] = round(phase.aprt_power, 1)
+        result[f"{key}_pf"] = round(phase.pf, 2)
+        result[f"{key}_freq"] = round(phase.freq, 1)
+
+    # Fill missing phases with zeros for a proper 3EM response
+    for i in range(len(data.phases), 3):
+        key = _phase_key(i)
+        result[f"{key}_current"] = 0.0
+        result[f"{key}_voltage"] = 0.0
+        result[f"{key}_act_power"] = 0.0
+        result[f"{key}_aprt_power"] = 0.0
+        result[f"{key}_pf"] = 0.0
+        result[f"{key}_freq"] = 0.0
+
+    result["total_current"] = round(data.total_current, 3)
+    result["total_act_power"] = round(data.total_act_power, 1)
+    result["total_aprt_power"] = round(data.total_aprt_power, 1)
+
+    return result
+
+
+def emdata_get_status(data: MeterData) -> dict[str, Any]:
+    """Build EMData.GetStatus response (cumulative energy)."""
+    result: dict[str, Any] = {"id": 0}
+
+    for i, phase in enumerate(data.phases):
+        key = _phase_key(i)
+        result[f"{key}_total_act_energy"] = round(phase.total_act_energy, 2)
+        result[f"{key}_total_act_ret_energy"] = round(phase.total_act_ret_energy, 2)
+
+    for i in range(len(data.phases), 3):
+        key = _phase_key(i)
+        result[f"{key}_total_act_energy"] = 0.0
+        result[f"{key}_total_act_ret_energy"] = 0.0
+
+    result["total_act"] = round(data.total_act_energy, 2)
+    result["total_act_ret"] = round(data.total_act_ret_energy, 2)
+
+    return result
+
+
+def shelly_get_status(data: MeterData, mac: str) -> dict[str, Any]:
+    """Build Shelly.GetStatus response (full device status)."""
+    return {
+        "sys": {
+            "mac": mac,
+            "available_updates": {},
+        },
+        "em:0": em_get_status(data),
+        "emdata:0": emdata_get_status(data),
+    }
+
+
+# ── mDNS advertiser ─────────────────────────────────────────────────
+
+
+class _MdnsAdvertiser:
+    """Advertises the emulator as a Shelly device via mDNS."""
+
+    def __init__(self, mac: str, port: int) -> None:
+        self._mac = mac
+        self._port = port
+        self._zeroconf: Zeroconf | None = None
+        self._info: ServiceInfo | None = None
+
+    def start(self) -> None:
+        device_id = f"shellypro3em-{self._mac.lower()}"
+        hostname = socket.gethostname()
+
+        # Resolve local IP
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+        finally:
+            s.close()
+
+        self._info = ServiceInfo(
+            "_http._tcp.local.",
+            f"{device_id}._http._tcp.local.",
+            addresses=[socket.inet_aton(local_ip)],
+            port=self._port,
+            properties={
+                "id": device_id,
+                "mac": self._mac,
+                "arch": "esp32",
+                "gen": "2",
+                "app": "Pro3EM",
+            },
+            server=f"{hostname}.local.",
+        )
+
+        self._zeroconf = Zeroconf()
+        self._zeroconf.register_service(self._info)
+        logger.info("mDNS: registered %s at %s:%d", device_id, local_ip, self._port)
+
+    def stop(self) -> None:
+        if self._zeroconf and self._info:
+            self._zeroconf.unregister_service(self._info)
+            self._zeroconf.close()
+            logger.info("mDNS: unregistered service")
+
+
+# ── Frontend ─────────────────────────────────────────────────────────
+
+
+def _generate_mac() -> str:
+    """Generate a random MAC from a UUID."""
+    return uuid.uuid4().hex[:12].upper()
+
+
+class ShellyFrontend(Frontend):
+    """Shelly Pro 3EM frontend — serves the Shelly HTTP API and advertises via mDNS."""
+
+    def __init__(self, backend: Backend, config: dict) -> None:
+        super().__init__(backend, config)
+        self._mac: str = config.get("mac") or _generate_mac()
+        self._phases: int = config.get("phases", 1)
+        self._mdns_enabled: bool = config.get("mdns", True)
+        self._port: int = config.get("port", 80)
+        self._router = self._build_router()
+        self._mdns: _MdnsAdvertiser | None = None
+
+    def get_router(self) -> APIRouter:
+        return self._router
+
+    async def start(self) -> None:
+        if self._mdns_enabled:
+            self._mdns = _MdnsAdvertiser(self._mac, self._port)
+            self._mdns.start()
+
+    async def stop(self) -> None:
+        if self._mdns:
+            self._mdns.stop()
+
+    @property
+    def mac(self) -> str:
+        return self._mac
+
+    def _build_router(self) -> APIRouter:
+        router = APIRouter()
+        backend = self._backend
+        mac = self._mac
+
+        @router.get("/shelly")
+        async def shelly_info():
+            """Device info endpoint."""
+            return device_info(mac)
+
+        @router.get("/rpc/Shelly.GetDeviceInfo")
+        async def get_device_info():
+            """RPC device info endpoint."""
+            return device_info(mac)
+
+        @router.get("/rpc/EM.GetStatus")
+        async def em_status(id: int = 0):
+            """Real-time per-phase power data."""
+            data = backend.get_meter_data()
+            return em_get_status(data)
+
+        @router.get("/rpc/EMData.GetStatus")
+        async def emdata_status(id: int = 0):
+            """Cumulative energy totals."""
+            data = backend.get_meter_data()
+            return emdata_get_status(data)
+
+        @router.get("/rpc/Shelly.GetStatus")
+        async def shelly_status():
+            """Full device status."""
+            data = backend.get_meter_data()
+            return shelly_get_status(data, mac)
+
+        return router
