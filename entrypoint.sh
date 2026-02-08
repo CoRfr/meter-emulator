@@ -13,14 +13,14 @@ with open('/data/options.json') as f:
 config = {
     'server': {'host': '0.0.0.0', 'port': 80},
     'frontend': {
-        'type': 'shelly',
+        'type': opts.get('frontend_type', 'shelly'),
         'shelly': {
-            'phases': opts.get('shelly_phases', 1),
+            'phases': int(opts.get('shelly_phases', 1)),
             'mdns': opts.get('shelly_mdns', True),
         },
     },
     'backend': {
-        'type': 'envoy',
+        'type': opts.get('backend_type', 'envoy'),
         'envoy': {
             'host': opts['envoy_host'],
             'token': opts['envoy_token'],
