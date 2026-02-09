@@ -6,7 +6,8 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter
-from zeroconf import ServiceInfo, Zeroconf
+from zeroconf import ServiceInfo
+from zeroconf.asyncio import AsyncZeroconf
 
 from meter_emulator.backends.base import Backend, MeterData
 from meter_emulator.frontends.base import Frontend
@@ -118,10 +119,10 @@ class _MdnsAdvertiser:
     def __init__(self, mac: str, port: int) -> None:
         self._mac = mac
         self._port = port
-        self._zeroconf: Zeroconf | None = None
+        self._aiozc: AsyncZeroconf | None = None
         self._info: ServiceInfo | None = None
 
-    def start(self) -> None:
+    async def start(self) -> None:
         device_id = f"shellypro3em-{self._mac.lower()}"
         hostname = socket.gethostname()
 
@@ -148,14 +149,14 @@ class _MdnsAdvertiser:
             server=f"{hostname}.local.",
         )
 
-        self._zeroconf = Zeroconf()
-        self._zeroconf.register_service(self._info)
+        self._aiozc = AsyncZeroconf()
+        await self._aiozc.async_register_service(self._info)
         logger.info("mDNS: registered %s at %s:%d", device_id, local_ip, self._port)
 
-    def stop(self) -> None:
-        if self._zeroconf and self._info:
-            self._zeroconf.unregister_service(self._info)
-            self._zeroconf.close()
+    async def stop(self) -> None:
+        if self._aiozc and self._info:
+            await self._aiozc.async_unregister_service(self._info)
+            await self._aiozc.async_close()
             logger.info("mDNS: unregistered service")
 
 
@@ -185,11 +186,11 @@ class ShellyFrontend(Frontend):
     async def start(self) -> None:
         if self._mdns_enabled:
             self._mdns = _MdnsAdvertiser(self._mac, self._port)
-            self._mdns.start()
+            await self._mdns.start()
 
     async def stop(self) -> None:
         if self._mdns:
-            self._mdns.stop()
+            await self._mdns.stop()
 
     @property
     def mac(self) -> str:
