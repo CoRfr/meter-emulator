@@ -275,7 +275,7 @@ class ShellyFrontend(Frontend):
                     msg_id = msg.get("id")
                     src = msg.get("src", "")
 
-                    logger.debug("WebSocket RPC: method=%s id=%s", method, msg_id)
+                    logger.info("WebSocket RPC: method=%s id=%s src=%s", method, msg_id, src)
 
                     result = _handle_rpc_method(method, params)
                     if result is not None:
