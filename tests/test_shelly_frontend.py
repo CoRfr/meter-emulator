@@ -149,3 +149,64 @@ def test_three_phase_data(client, mock_backend):
     assert data["b_act_power"] == 600.0
     assert data["c_act_power"] == 200.0
     assert data["total_act_power"] == 1200.0
+
+
+# ── WebSocket /rpc tests ──────────────────────────────────────────────
+
+
+def test_ws_rpc_em_get_status(client):
+    """WebSocket RPC returns EM.GetStatus data."""
+    with client.websocket_connect("/rpc") as ws:
+        ws.send_json({"id": 1, "src": "test", "method": "EM.GetStatus", "params": {"id": 0}})
+        resp = ws.receive_json()
+        assert resp["id"] == 1
+        assert resp["src"] == f"shellypro3em-{TEST_MAC.lower()}"
+        assert resp["dst"] == "test"
+        assert resp["result"]["total_act_power"] == 500.0
+        assert resp["result"]["a_voltage"] == 230.5
+
+
+def test_ws_rpc_shelly_get_status(client):
+    """WebSocket RPC returns Shelly.GetStatus data."""
+    with client.websocket_connect("/rpc") as ws:
+        ws.send_json({"id": 2, "src": "battery", "method": "Shelly.GetStatus"})
+        resp = ws.receive_json()
+        assert resp["id"] == 2
+        assert resp["dst"] == "battery"
+        assert "em:0" in resp["result"]
+        assert "emdata:0" in resp["result"]
+        assert resp["result"]["sys"]["mac"] == TEST_MAC
+
+
+def test_ws_rpc_device_info(client):
+    """WebSocket RPC returns Shelly.GetDeviceInfo."""
+    with client.websocket_connect("/rpc") as ws:
+        ws.send_json({"id": 3, "src": "app", "method": "Shelly.GetDeviceInfo"})
+        resp = ws.receive_json()
+        assert resp["result"]["mac"] == TEST_MAC
+        assert resp["result"]["app"] == "Pro3EM"
+
+
+def test_ws_rpc_unknown_method(client):
+    """WebSocket RPC returns error for unknown methods."""
+    with client.websocket_connect("/rpc") as ws:
+        ws.send_json({"id": 4, "src": "test", "method": "Unknown.Method"})
+        resp = ws.receive_json()
+        assert resp["id"] == 4
+        assert "error" in resp
+        assert resp["error"]["code"] == -1
+        assert "Unknown method" in resp["error"]["message"]
+
+
+def test_ws_rpc_multiple_requests(client):
+    """WebSocket RPC handles multiple sequential requests on one connection."""
+    with client.websocket_connect("/rpc") as ws:
+        ws.send_json({"id": 1, "src": "t", "method": "EM.GetStatus"})
+        r1 = ws.receive_json()
+        ws.send_json({"id": 2, "src": "t", "method": "EMData.GetStatus"})
+        r2 = ws.receive_json()
+
+        assert r1["id"] == 1
+        assert r1["result"]["total_act_power"] == 500.0
+        assert r2["id"] == 2
+        assert r2["result"]["total_act"] == 12345.67

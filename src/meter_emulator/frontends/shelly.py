@@ -5,7 +5,7 @@ import socket
 import uuid
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
 
@@ -235,5 +235,57 @@ class ShellyFrontend(Frontend):
             """Full device status."""
             data = backend.get_meter_data()
             return shelly_get_status(data, mac)
+
+        # Method dispatch table for JSON-RPC
+        device_id = f"shellypro3em-{mac.lower()}"
+
+        def _handle_rpc_method(method: str, params: dict[str, Any] | None) -> Any:
+            """Dispatch an RPC method and return the result."""
+            data = backend.get_meter_data()
+            if method == "Shelly.GetDeviceInfo":
+                return device_info(mac)
+            if method == "Shelly.GetStatus":
+                return shelly_get_status(data, mac)
+            if method == "EM.GetStatus":
+                return em_get_status(data)
+            if method == "EMData.GetStatus":
+                return emdata_get_status(data)
+            if method == "Shelly.GetConfig":
+                return {"sys": {"device": {"mac": mac, "name": "Shelly Pro 3EM Emulator"}}}
+            return None
+
+        @router.websocket("/rpc")
+        async def websocket_rpc(ws: WebSocket):
+            """Shelly Gen2 JSON-RPC 2.0 over WebSocket."""
+            await ws.accept()
+            logger.info("WebSocket /rpc: client connected")
+            try:
+                while True:
+                    msg = await ws.receive_json()
+                    method = msg.get("method", "")
+                    params = msg.get("params")
+                    msg_id = msg.get("id")
+                    src = msg.get("src", "")
+
+                    logger.debug("WebSocket RPC: method=%s id=%s", method, msg_id)
+
+                    result = _handle_rpc_method(method, params)
+                    if result is not None:
+                        response = {
+                            "id": msg_id,
+                            "src": device_id,
+                            "dst": src,
+                            "result": result,
+                        }
+                    else:
+                        response = {
+                            "id": msg_id,
+                            "src": device_id,
+                            "dst": src,
+                            "error": {"code": -1, "message": f"Unknown method: {method}"},
+                        }
+                    await ws.send_json(response)
+            except WebSocketDisconnect:
+                logger.info("WebSocket /rpc: client disconnected")
 
         return router
