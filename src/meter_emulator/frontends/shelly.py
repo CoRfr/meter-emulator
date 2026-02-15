@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 SHELLY_MODEL = "SPEM-003CEBEU"
 SHELLY_GEN = 2
 SHELLY_APP = "Pro3EM"
-SHELLY_FW_VER = "1.4.4-g6d2a586"
-SHELLY_FW_ID = "20241011-114455/1.4.4-g6d2a586"
+SHELLY_FW_VER = "1.6.1-g8dbd358"
+SHELLY_FW_ID = "20250508-110717/1.6.1-g8dbd358"
 
 
 # ── Response builders ────────────────────────────────────────────────
