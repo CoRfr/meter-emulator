@@ -1,5 +1,6 @@
 """Shelly Pro 3EM frontend — HTTP API, response models, and mDNS advertisement."""
 
+import asyncio
 import logging
 import socket
 from typing import Any
@@ -153,9 +154,11 @@ class _MdnsAdvertiser:
             ServiceInfo("_shelly._tcp.local.", f"{device_id}._shelly._tcp.local.", **common),
         ]
 
+        logger.info("mDNS: creating AsyncZeroconf...")
         self._aiozc = AsyncZeroconf()
         for svc in self._services:
-            await self._aiozc.async_register_service(svc)
+            logger.info("mDNS: registering %s...", svc.type)
+            await asyncio.wait_for(self._aiozc.async_register_service(svc), timeout=10)
         logger.info("mDNS: registered %s at %s:%d", device_id, local_ip, self._port)
 
     async def stop(self) -> None:

@@ -173,7 +173,12 @@ class EnvoyBackend(Backend):
             token=self._token,
         )
         if self._aiohttp_session is None:
-            self._aiohttp_session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30))
+            # Disable SSL verification — Envoy uses a self-signed certificate
+            # and _check_jwt connects to the local Envoy over HTTPS.
+            connector = aiohttp.TCPConnector(ssl=False)
+            self._aiohttp_session = aiohttp.ClientSession(
+                connector=connector, timeout=aiohttp.ClientTimeout(total=30)
+            )
         await asyncio.wait_for(self._token_auth.setup(self._aiohttp_session), timeout=30)
         self._token = self._token_auth.token
         logger.info(

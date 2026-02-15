@@ -29,7 +29,9 @@ async def lifespan(app: FastAPI):
         backend_conf["phases"] = config.frontend.shelly.phases
 
     backend = create_backend(backend_type, backend_conf)
+    logger.info("Starting backend (%s)...", backend_type)
     await backend.start()
+    logger.info("Backend started")
 
     # Create and start frontend
     frontend_type = config.frontend.type
@@ -38,7 +40,9 @@ async def lifespan(app: FastAPI):
 
     frontend = create_frontend(frontend_type, backend, frontend_conf)
     app.include_router(frontend.get_router())
+    logger.info("Starting frontend (%s)...", frontend_type)
     await frontend.start()
+    logger.info("Frontend started")
 
     logger.info(
         "Meter emulator ready — frontend=%s, backend=%s",
