@@ -39,6 +39,7 @@ def device_info(mac: str) -> dict[str, Any]:
         "fw_id": SHELLY_FW_ID,
         "ver": SHELLY_FW_VER,
         "app": SHELLY_APP,
+        "profile": "triphase",
         "auth_en": False,
         "auth_domain": None,
     }
@@ -72,9 +73,11 @@ def em_get_status(data: MeterData) -> dict[str, Any]:
         result[f"{key}_pf"] = 0.0
         result[f"{key}_freq"] = 0.0
 
+    result["n_current"] = 0.0
     result["total_current"] = round(data.total_current, 3)
     result["total_act_power"] = round(data.total_act_power, 1)
     result["total_aprt_power"] = round(data.total_aprt_power, 1)
+    result["user_calibrated_phase"] = []
 
     return result
 
@@ -99,11 +102,39 @@ def emdata_get_status(data: MeterData) -> dict[str, Any]:
     return result
 
 
+def shelly_get_config(mac: str) -> dict[str, Any]:
+    """Build Shelly.GetConfig response."""
+    return {
+        "em:0": {
+            "id": 0,
+            "name": None,
+            "blink_mode_selector": "active_energy",
+            "ct_type": "120A",
+            "monitor_phase_sequence": False,
+            "phase_selector": "all",
+            "reverse": {},
+        },
+        "emdata:0": {},
+        "sys": {
+            "device": {
+                "mac": mac,
+                "name": "Shelly Pro 3EM Emulator",
+                "fw_id": SHELLY_FW_ID,
+                "profile": "triphase",
+                "discoverable": True,
+                "eco_mode": False,
+                "addon_type": None,
+            },
+        },
+    }
+
+
 def shelly_get_status(data: MeterData, mac: str) -> dict[str, Any]:
     """Build Shelly.GetStatus response (full device status)."""
     return {
         "sys": {
             "mac": mac,
+            "restart_required": False,
             "available_updates": {},
         },
         "em:0": em_get_status(data),
@@ -260,7 +291,7 @@ class ShellyFrontend(Frontend):
             if method == "EMData.GetStatus":
                 return emdata_get_status(data)
             if method == "Shelly.GetConfig":
-                return {"sys": {"device": {"mac": mac, "name": "Shelly Pro 3EM Emulator"}}}
+                return shelly_get_config(mac)
             if method == "Shelly.GetComponents":
                 return {"components": [], "cfg_rev": 0, "offset": 0, "total": 0}
             return None
@@ -293,7 +324,10 @@ class ShellyFrontend(Frontend):
                             "id": msg_id,
                             "src": device_id,
                             "dst": src,
-                            "error": {"code": -1, "message": f"Unknown method: {method}"},
+                            "error": {
+                                "code": -114,
+                                "message": f"Method {method} failed: Method not found!",
+                            },
                         }
                     await ws.send_json(response)
             except WebSocketDisconnect:

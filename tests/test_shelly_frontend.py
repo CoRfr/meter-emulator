@@ -194,8 +194,8 @@ def test_ws_rpc_unknown_method(client):
         resp = ws.receive_json()
         assert resp["id"] == 4
         assert "error" in resp
-        assert resp["error"]["code"] == -1
-        assert "Unknown method" in resp["error"]["message"]
+        assert resp["error"]["code"] == -114
+        assert "Method not found" in resp["error"]["message"]
 
 
 def test_ws_rpc_multiple_requests(client):
