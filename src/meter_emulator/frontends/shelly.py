@@ -314,15 +314,20 @@ class ShellyFrontend(Frontend):
                 while True:
                     await asyncio.sleep(backend.poll_interval)
                     data = backend.get_meter_data()
+                    em = em_get_status(data)
                     notification = {
                         "src": device_id,
                         "dst": peer_src,
                         "method": "NotifyStatus",
                         "params": {
-                            "em:0": em_get_status(data),
+                            "em:0": em,
                             "emdata:0": emdata_get_status(data),
                         },
                     }
+                    logger.debug(
+                        "WebSocket push: NotifyStatus total_act_power=%.1f",
+                        em.get("total_act_power", 0.0),
+                    )
                     await ws.send_json(notification)
 
             notify_task: asyncio.Task | None = None
@@ -336,10 +341,9 @@ class ShellyFrontend(Frontend):
                     if src:
                         peer_src = src
 
-                    logger.info("WebSocket RPC: method=%s id=%s src=%s", method, msg_id, src)
-
                     result = _handle_rpc_method(method, params)
                     if result is not None:
+                        logger.info("WebSocket RPC: %s id=%s → ok", method, msg_id)
                         response = {
                             "id": msg_id,
                             "src": device_id,
@@ -347,6 +351,7 @@ class ShellyFrontend(Frontend):
                             "result": result,
                         }
                     else:
+                        logger.info("WebSocket RPC: %s id=%s → error(-114)", method, msg_id)
                         response = {
                             "id": msg_id,
                             "src": device_id,
