@@ -4,9 +4,11 @@
 Usage:
     poetry run python tools/shelly_client.py [HOST] [PORT]
     poetry run python tools/shelly_client.py -f [HOST] [PORT]
+    poetry run python tools/shelly_client.py -v [HOST] [PORT]
 
 Options:
     -f, --follow    Keep the connection open and print push updates
+    -v, --verbose   Show raw WebSocket frames (sent/received JSON)
 
 Defaults to localhost:8080. Requires aioshelly:
     poetry run pip install aioshelly
@@ -14,6 +16,8 @@ Defaults to localhost:8080. Requires aioshelly:
 
 import argparse
 import asyncio
+import json
+import logging
 from datetime import datetime
 
 import aiohttp
@@ -43,7 +47,22 @@ def print_em_status(status: dict) -> None:
         print(f"  EMD | total={total:.2f} Wh  ret={ret:.2f} Wh")
 
 
-async def main(host: str, port: int, follow: bool) -> None:
+def setup_verbose_logging() -> None:
+    """Enable DEBUG logging on aioshelly to show raw WebSocket frames."""
+    fmt = logging.Formatter("  %(name)s %(message)s")
+    handler = logging.StreamHandler()
+    handler.setFormatter(fmt)
+
+    for name in ("aioshelly.rpc_device.wsrpc", "aioshelly.rpc_device.device"):
+        log = logging.getLogger(name)
+        log.setLevel(logging.DEBUG)
+        log.addHandler(handler)
+
+
+async def main(host: str, port: int, follow: bool, verbose: bool) -> None:
+    if verbose:
+        setup_verbose_logging()
+
     print(f"Connecting to {host}:{port}...")
     options = ConnectionOptions(host, port=port)
 
@@ -60,18 +79,19 @@ async def main(host: str, port: int, follow: bool) -> None:
         info = device.shelly
         print()
         print("=== Device Info ===")
-        print(f"  Name:     {info.get('name')}")
-        print(f"  ID:       {info.get('id')}")
-        print(f"  MAC:      {info.get('mac')}")
-        print(f"  Model:    {info.get('model')}")
-        print(f"  Gen:      {info.get('gen')}")
-        print(f"  Firmware: {info.get('ver')}")
-        print(f"  App:      {info.get('app')}")
-        print(f"  Profile:  {info.get('profile')}")
-        print(f"  Auth:     {info.get('auth_en')}")
+        for key in ("name", "id", "mac", "model", "gen", "ver", "app", "profile", "auth_en"):
+            print(f"  {key:12s} {json.dumps(info.get(key))}")
 
         print()
-        print("=== Initial Status ===")
+        print("=== Config ===")
+        print(json.dumps(device.config, indent=2))
+
+        print()
+        print("=== Status ===")
+        print(json.dumps(device.status, indent=2))
+
+        print()
+        print("=== Summary ===")
         print_em_status(device.status)
 
         if not follow:
@@ -87,8 +107,12 @@ async def main(host: str, port: int, follow: bool) -> None:
                 update_event.clear()
                 await update_event.wait()
                 ts = datetime.now().strftime("%H:%M:%S")
-                print(f"[{ts}] Update received:", flush=True)
-                print_em_status(device.status)
+                if verbose:
+                    print(f"[{ts}] Raw status:")
+                    print(json.dumps(device.status, indent=2), flush=True)
+                else:
+                    print(f"[{ts}] Update received:", flush=True)
+                    print_em_status(device.status)
         except (KeyboardInterrupt, asyncio.CancelledError):
             pass
         finally:
@@ -103,5 +127,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "-f", "--follow", action="store_true", help="Keep connection and print push updates"
     )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Show raw WebSocket frames")
     args = parser.parse_args()
-    asyncio.run(main(args.host, args.port, args.follow))
+    asyncio.run(main(args.host, args.port, args.follow, args.verbose))
