@@ -154,6 +154,7 @@ class EnvoyBackend(Backend):
         self._refresh_task: asyncio.Task | None = None
         self._client: httpx.AsyncClient | None = None
         self._token_auth: Any = None  # EnvoyTokenAuth instance when credentials are provided
+        self._aiohttp_session: Any = None  # aiohttp session for pyenphase token auth
 
     @property
     def _has_credentials(self) -> bool:
@@ -161,6 +162,7 @@ class EnvoyBackend(Backend):
 
     async def _init_token_auth(self) -> None:
         """Initialize pyenphase token auth and obtain/refresh the token."""
+        import aiohttp
         from pyenphase.auth import EnvoyTokenAuth
 
         self._token_auth = EnvoyTokenAuth(
@@ -170,7 +172,9 @@ class EnvoyBackend(Backend):
             envoy_serial=self._serial,
             token=self._token,
         )
-        await self._token_auth.setup()
+        if self._aiohttp_session is None:
+            self._aiohttp_session = aiohttp.ClientSession()
+        await self._token_auth.setup(self._aiohttp_session)
         self._token = self._token_auth.token
         logger.info(
             "Token obtained via Enlighten (type=%s, expires=%s)",
@@ -221,6 +225,8 @@ class EnvoyBackend(Backend):
                     pass
         if self._client is not None:
             await self._client.aclose()
+        if self._aiohttp_session is not None:
+            await self._aiohttp_session.close()
         logger.info("Envoy backend stopped")
 
     def get_meter_data(self) -> MeterData:

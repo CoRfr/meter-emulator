@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "meter-emulator"
-version = "0.1.4"
+version = "0.1.5"
 description = "Pluggable energy meter emulator with configurable frontends and backends"
 authors = []
 packages = [{include = "meter_emulator", from = "src"}]
