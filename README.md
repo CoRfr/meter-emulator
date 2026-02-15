@@ -8,7 +8,7 @@ A pluggable energy meter emulator with configurable frontends and backends. Curr
 Enphase Envoy ──(poll /production.json)──> Meter Emulator ──(Shelly HTTP API)──> Marstek Venus-E
 ```
 
-The emulator polls a backend data source at a configurable interval, translates the data into the selected frontend's format, and serves it over HTTP. The Shelly frontend also advertises itself via mDNS so compatible devices can discover it automatically.
+The emulator polls a backend data source at a configurable interval, translates the data into the selected frontend's format, and serves it over HTTP. The Shelly frontend advertises itself via mDNS using both `_http._tcp` and `_shelly._tcp` service types (matching real Shelly Gen2 devices) so compatible devices can discover it automatically.
 
 ## Shelly API Endpoints
 
@@ -43,11 +43,18 @@ backend:
     token: "${ENVOY_TOKEN}"   # Supports env var substitution
     poll_interval: 2.0
     verify_ssl: false
+    # Optional: Enlighten credentials for automatic token refresh
+    # username: "your-enphase-email@example.com"
+    # password: "${ENPHASE_PASSWORD}"
+    # serial: "123456789012"
 ```
 
-### Envoy Token
+### Envoy Authentication
 
-Firmware >= 7.0 requires a JWT token for authentication. You can obtain one from [Enphase Entrez](https://entrez.enphaseenergy.com/) or via the Envoy's local API. Pass it via the `ENVOY_TOKEN` environment variable or directly in the config.
+Firmware >= 7.0 requires a JWT token for authentication. There are two options:
+
+- **Automatic (recommended):** Provide your Enlighten Cloud credentials (`username`, `password`, `serial`). The token is obtained and refreshed automatically via pyenphase, so you never need to manually replace expired tokens.
+- **Manual:** Obtain a JWT from [Enphase Entrez](https://entrez.enphaseenergy.com/) or via the Envoy's local API and pass it via the `ENVOY_TOKEN` environment variable or directly in the config. Note that installer tokens from Entrez are only valid for 12 hours.
 
 ## Development
 
