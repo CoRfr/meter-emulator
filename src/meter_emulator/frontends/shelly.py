@@ -120,7 +120,7 @@ class _MdnsAdvertiser:
         self._mac = mac
         self._port = port
         self._aiozc: AsyncZeroconf | None = None
-        self._info: ServiceInfo | None = None
+        self._services: list[ServiceInfo] = []
 
     async def start(self) -> None:
         device_id = f"shellypro3em-{self._mac.lower()}"
@@ -134,30 +134,37 @@ class _MdnsAdvertiser:
         finally:
             s.close()
 
-        self._info = ServiceInfo(
-            "_http._tcp.local.",
-            f"{device_id}._http._tcp.local.",
-            addresses=[socket.inet_aton(local_ip)],
-            port=self._port,
-            properties={
-                "id": device_id,
-                "mac": self._mac,
-                "arch": "esp32",
-                "gen": "2",
-                "app": "Pro3EM",
-            },
-            server=f"{hostname}.local.",
-        )
+        properties = {
+            "id": device_id,
+            "mac": self._mac,
+            "arch": "esp32",
+            "gen": "2",
+            "app": "Pro3EM",
+        }
+        common = {
+            "addresses": [socket.inet_aton(local_ip)],
+            "port": self._port,
+            "properties": properties,
+            "server": f"{hostname}.local.",
+        }
+
+        # Real Shelly Gen2 devices advertise both _http._tcp and _shelly._tcp
+        self._services = [
+            ServiceInfo("_http._tcp.local.", f"{device_id}._http._tcp.local.", **common),
+            ServiceInfo("_shelly._tcp.local.", f"{device_id}._shelly._tcp.local.", **common),
+        ]
 
         self._aiozc = AsyncZeroconf()
-        await self._aiozc.async_register_service(self._info)
+        for svc in self._services:
+            await self._aiozc.async_register_service(svc)
         logger.info("mDNS: registered %s at %s:%d", device_id, local_ip, self._port)
 
     async def stop(self) -> None:
-        if self._aiozc and self._info:
-            await self._aiozc.async_unregister_service(self._info)
+        if self._aiozc and self._services:
+            for svc in self._services:
+                await self._aiozc.async_unregister_service(svc)
             await self._aiozc.async_close()
-            logger.info("mDNS: unregistered service")
+            logger.info("mDNS: unregistered services")
 
 
 # ── Frontend ─────────────────────────────────────────────────────────
