@@ -43,8 +43,12 @@ config = {
 }
 
 mac = opts.get('shelly_mac')
-if mac:
-    config['frontend']['shelly']['mac'] = mac
+if not mac:
+    # Generate a stable MAC from the hostname so restarts don't leave
+    # orphaned mDNS entries with random MACs
+    import hashlib, socket
+    mac = hashlib.md5(socket.gethostname().encode()).hexdigest()[:12].upper()
+config['frontend']['shelly']['mac'] = mac
 
 with open('/data/config.yaml', 'w') as f:
     yaml.dump(config, f, default_flow_style=False)

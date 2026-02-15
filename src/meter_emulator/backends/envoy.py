@@ -173,8 +173,8 @@ class EnvoyBackend(Backend):
             token=self._token,
         )
         if self._aiohttp_session is None:
-            self._aiohttp_session = aiohttp.ClientSession()
-        await self._token_auth.setup(self._aiohttp_session)
+            self._aiohttp_session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30))
+        await asyncio.wait_for(self._token_auth.setup(self._aiohttp_session), timeout=30)
         self._token = self._token_auth.token
         logger.info(
             "Token obtained via Enlighten (type=%s, expires=%s)",

@@ -7,7 +7,7 @@ configuration:
     name: MAC address
     description: >-
       Fake MAC address for device identification (12 hex characters).
-      Leave empty to auto-generate one.
+      Leave empty to generate a stable one from the hostname.
   shelly_phases:
     name: Number of phases
     description: >-

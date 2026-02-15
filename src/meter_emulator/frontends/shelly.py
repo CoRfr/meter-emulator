@@ -2,7 +2,6 @@
 
 import logging
 import socket
-import uuid
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -171,8 +170,14 @@ class _MdnsAdvertiser:
 
 
 def _generate_mac() -> str:
-    """Generate a random MAC from a UUID."""
-    return uuid.uuid4().hex[:12].upper()
+    """Generate a stable MAC from the hostname.
+
+    Using the hostname ensures the same MAC across restarts, avoiding
+    orphaned mDNS entries from previously random MACs.
+    """
+    import hashlib
+
+    return hashlib.md5(socket.gethostname().encode()).hexdigest()[:12].upper()
 
 
 class ShellyFrontend(Frontend):
