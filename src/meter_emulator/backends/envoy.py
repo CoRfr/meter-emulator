@@ -157,6 +157,10 @@ class EnvoyBackend(Backend):
         self._aiohttp_session: Any = None  # aiohttp session for pyenphase token auth
 
     @property
+    def poll_interval(self) -> float:
+        return self._poll_interval
+
+    @property
     def _has_credentials(self) -> bool:
         return all([self._username, self._password, self._serial])
 

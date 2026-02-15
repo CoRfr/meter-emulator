@@ -31,6 +31,11 @@ class MeterData:
 class Backend(ABC):
     """Abstract base class for meter data backends."""
 
+    @property
+    def poll_interval(self) -> float:
+        """Seconds between data refreshes (used by frontends for push frequency)."""
+        return 2.0
+
     @abstractmethod
     async def start(self) -> None:
         """Start the backend (e.g., begin polling)."""

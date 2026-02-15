@@ -304,9 +304,28 @@ class ShellyFrontend(Frontend):
 
         @router.websocket("/rpc")
         async def websocket_rpc(ws: WebSocket):
-            """Shelly Gen2 JSON-RPC 2.0 over WebSocket."""
+            """Shelly Gen2 JSON-RPC 2.0 over WebSocket with push notifications."""
             await ws.accept()
             logger.info("WebSocket /rpc: client connected")
+            peer_src: str = ""
+
+            async def _notify_loop() -> None:
+                """Push NotifyStatus at the backend poll interval."""
+                while True:
+                    await asyncio.sleep(backend.poll_interval)
+                    data = backend.get_meter_data()
+                    notification = {
+                        "src": device_id,
+                        "dst": peer_src,
+                        "method": "NotifyStatus",
+                        "params": {
+                            "em:0": em_get_status(data),
+                            "emdata:0": emdata_get_status(data),
+                        },
+                    }
+                    await ws.send_json(notification)
+
+            notify_task: asyncio.Task | None = None
             try:
                 while True:
                     msg = await ws.receive_json()
@@ -314,6 +333,8 @@ class ShellyFrontend(Frontend):
                     params = msg.get("params")
                     msg_id = msg.get("id")
                     src = msg.get("src", "")
+                    if src:
+                        peer_src = src
 
                     logger.info("WebSocket RPC: method=%s id=%s src=%s", method, msg_id, src)
 
@@ -336,7 +357,14 @@ class ShellyFrontend(Frontend):
                             },
                         }
                     await ws.send_json(response)
+
+                    # Start push notifications after the first RPC exchange
+                    if notify_task is None:
+                        notify_task = asyncio.create_task(_notify_loop())
             except WebSocketDisconnect:
                 logger.info("WebSocket /rpc: client disconnected")
+            finally:
+                if notify_task is not None:
+                    notify_task.cancel()
 
         return router
