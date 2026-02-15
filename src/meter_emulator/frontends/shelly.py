@@ -26,7 +26,12 @@ SHELLY_FW_ID = "20241011-114455/1.4.4-g6d2a586"
 # ── Response builders ────────────────────────────────────────────────
 
 
-def device_info(mac: str) -> dict[str, Any]:
+def _profile(phases: int) -> str:
+    """Return Shelly profile string for the given phase count."""
+    return "triphase" if phases == 3 else "monophase"
+
+
+def device_info(mac: str, phases: int = 3) -> dict[str, Any]:
     """Build Shelly device info response."""
     device_id = f"shellypro3em-{mac.lower()}"
     return {
@@ -39,7 +44,7 @@ def device_info(mac: str) -> dict[str, Any]:
         "fw_id": SHELLY_FW_ID,
         "ver": SHELLY_FW_VER,
         "app": SHELLY_APP,
-        "profile": "triphase",
+        "profile": _profile(phases),
         "auth_en": False,
         "auth_domain": None,
     }
@@ -102,7 +107,7 @@ def emdata_get_status(data: MeterData) -> dict[str, Any]:
     return result
 
 
-def shelly_get_config(mac: str) -> dict[str, Any]:
+def shelly_get_config(mac: str, phases: int = 3) -> dict[str, Any]:
     """Build Shelly.GetConfig response."""
     return {
         "em:0": {
@@ -120,7 +125,7 @@ def shelly_get_config(mac: str) -> dict[str, Any]:
                 "mac": mac,
                 "name": "Shelly Pro 3EM Emulator",
                 "fw_id": SHELLY_FW_ID,
-                "profile": "triphase",
+                "profile": _profile(phases),
                 "discoverable": True,
                 "eco_mode": False,
                 "addon_type": None,
@@ -247,16 +252,17 @@ class ShellyFrontend(Frontend):
         router = APIRouter()
         backend = self._backend
         mac = self._mac
+        phases = self._phases
 
         @router.get("/shelly")
         async def shelly_info():
             """Device info endpoint."""
-            return device_info(mac)
+            return device_info(mac, phases)
 
         @router.get("/rpc/Shelly.GetDeviceInfo")
         async def get_device_info():
             """RPC device info endpoint."""
-            return device_info(mac)
+            return device_info(mac, phases)
 
         @router.get("/rpc/EM.GetStatus")
         async def em_status(id: int = 0):
@@ -283,7 +289,7 @@ class ShellyFrontend(Frontend):
             """Dispatch an RPC method and return the result."""
             data = backend.get_meter_data()
             if method == "Shelly.GetDeviceInfo":
-                return device_info(mac)
+                return device_info(mac, phases)
             if method == "Shelly.GetStatus":
                 return shelly_get_status(data, mac)
             if method == "EM.GetStatus":
@@ -291,7 +297,7 @@ class ShellyFrontend(Frontend):
             if method == "EMData.GetStatus":
                 return emdata_get_status(data)
             if method == "Shelly.GetConfig":
-                return shelly_get_config(mac)
+                return shelly_get_config(mac, phases)
             if method == "Shelly.GetComponents":
                 return {"components": [], "cfg_rev": 0, "offset": 0, "total": 0}
             return None
