@@ -69,9 +69,23 @@ class FrontendConfig(BaseModel):
 
 class EnvoyConfig(BaseModel):
     host: str
-    token: str
+    token: str | None = None
     poll_interval: float = 2.0
     verify_ssl: bool = False
+    # Enlighten Cloud credentials for automatic token refresh
+    username: str | None = None
+    password: str | None = None
+    serial: str | None = None
+
+    @property
+    def has_credentials(self) -> bool:
+        return all([self.username, self.password, self.serial])
+
+    def model_post_init(self, __context: object) -> None:
+        if not self.token and not self.has_credentials:
+            raise ValueError(
+                "Either 'token' or all of 'username', 'password', 'serial' must be provided"
+            )
 
 
 class BackendConfig(BaseModel):

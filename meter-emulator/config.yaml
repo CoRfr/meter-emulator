@@ -20,6 +20,9 @@ options:
   envoy_token: ""
   envoy_poll_interval: 2.0
   envoy_verify_ssl: false
+  envoy_username: ""
+  envoy_password: ""
+  envoy_serial: ""
 schema:
   frontend_type: "list(shelly)"
   shelly_mac: "str?"
@@ -27,6 +30,9 @@ schema:
   shelly_mdns: bool
   backend_type: "list(envoy)"
   envoy_host: str
-  envoy_token: password
+  envoy_token: "password?"
   envoy_poll_interval: float
   envoy_verify_ssl: bool
+  envoy_username: "str?"
+  envoy_password: "password?"
+  envoy_serial: "str?"

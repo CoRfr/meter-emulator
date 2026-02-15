@@ -19,3 +19,9 @@ backend:
     token: "${ENVOY_TOKEN}"
     poll_interval: 2.0
     verify_ssl: false
+    # Optional: Enlighten Cloud credentials for automatic token refresh.
+    # When set, the token is obtained and refreshed automatically via pyenphase.
+    # The 'token' field above becomes optional (used as initial fallback).
+    # username: "your-enphase-email@example.com"
+    # password: "${ENPHASE_PASSWORD}"
+    # serial: "123456789012"

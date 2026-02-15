@@ -28,9 +28,23 @@ configuration:
   envoy_token:
     name: Envoy token
     description: >-
-      JWT token for Envoy API authentication (required for firmware >= 7.0).
-      To obtain a token, visit https://entrez.enphaseenergy.com/, log in with
-      your Enphase account, and copy the token for your gateway's serial number.
+      JWT token for Envoy API authentication (firmware >= 7.0).
+      Optional when Enlighten credentials are provided for automatic refresh.
+      To obtain manually, visit https://entrez.enphaseenergy.com/.
+  envoy_username:
+    name: Enlighten username
+    description: >-
+      Enphase Enlighten account email for automatic token refresh.
+      Leave empty to use a static token instead.
+  envoy_password:
+    name: Enlighten password
+    description: >-
+      Enphase Enlighten account password for automatic token refresh.
+  envoy_serial:
+    name: Envoy serial number
+    description: >-
+      Serial number of your Enphase Envoy gateway (found on the device label
+      or in the Enphase app). Required for automatic token refresh.
   envoy_poll_interval:
     name: Poll interval (seconds)
     description: >-

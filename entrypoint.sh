@@ -10,6 +10,23 @@ import yaml
 with open('/data/options.json') as f:
     opts = json.load(f)
 
+envoy_config = {
+    'host': opts['envoy_host'],
+    'poll_interval': opts.get('envoy_poll_interval', 2.0),
+    'verify_ssl': opts.get('envoy_verify_ssl', False),
+}
+
+# Token is optional when credentials are provided
+token = opts.get('envoy_token')
+if token:
+    envoy_config['token'] = token
+
+# Enlighten Cloud credentials for automatic token refresh
+for key in ('username', 'password', 'serial'):
+    val = opts.get(f'envoy_{key}')
+    if val:
+        envoy_config[key] = val
+
 config = {
     'server': {'host': '0.0.0.0', 'port': 80},
     'frontend': {
@@ -21,12 +38,7 @@ config = {
     },
     'backend': {
         'type': opts.get('backend_type', 'envoy'),
-        'envoy': {
-            'host': opts['envoy_host'],
-            'token': opts['envoy_token'],
-            'poll_interval': opts.get('envoy_poll_interval', 2.0),
-            'verify_ssl': opts.get('envoy_verify_ssl', False),
-        },
+        'envoy': envoy_config,
     },
 }
 

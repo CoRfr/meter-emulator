@@ -13,6 +13,7 @@ httpx = "^0.28"
 pyyaml = "^6.0"
 pydantic = "^2.0"
 zeroconf = "^0.146"
+pyenphase = "^2.4"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -130,33 +131,94 @@ def _calc_ret_energy_line(
     return max(0.0, prod_wh - cons_wh + net_wh)
 
 
+# Refresh token if it expires within 30 days (same threshold as HA integration)
+_TOKEN_REFRESH_THRESHOLD_SECONDS = 30 * 24 * 3600
+# Check token expiry once per day
+_TOKEN_CHECK_INTERVAL_SECONDS = 24 * 3600
+
+
 class EnvoyBackend(Backend):
     """Backend that polls an Enphase Envoy for production data."""
 
     def __init__(self, config: dict) -> None:
         self._host = config["host"]
-        self._token = config["token"]
+        self._token: str | None = config.get("token")
         self._poll_interval = config.get("poll_interval", 2.0)
         self._verify_ssl = config.get("verify_ssl", False)
         self._phases = config.get("phases", 1)
+        self._username: str | None = config.get("username")
+        self._password: str | None = config.get("password")
+        self._serial: str | None = config.get("serial")
         self._data = MeterData()
-        self._task: asyncio.Task | None = None
+        self._poll_task: asyncio.Task | None = None
+        self._refresh_task: asyncio.Task | None = None
         self._client: httpx.AsyncClient | None = None
+        self._token_auth: Any = None  # EnvoyTokenAuth instance when credentials are provided
+
+    @property
+    def _has_credentials(self) -> bool:
+        return all([self._username, self._password, self._serial])
+
+    async def _init_token_auth(self) -> None:
+        """Initialize pyenphase token auth and obtain/refresh the token."""
+        from pyenphase.auth import EnvoyTokenAuth
+
+        self._token_auth = EnvoyTokenAuth(
+            self._host,
+            cloud_username=self._username,
+            cloud_password=self._password,
+            envoy_serial=self._serial,
+            token=self._token,
+        )
+        await self._token_auth.setup()
+        self._token = self._token_auth.token
+        logger.info(
+            "Token obtained via Enlighten (type=%s, expires=%s)",
+            self._token_auth.token_type,
+            time.strftime("%Y-%m-%d %H:%M", time.localtime(self._token_auth.expire_timestamp)),
+        )
+
+    async def _refresh_token(self) -> None:
+        """Refresh the token using stored credentials."""
+        if self._token_auth is None:
+            await self._init_token_auth()
+            return
+        await self._token_auth.refresh()
+        self._token = self._token_auth.token
+        logger.info(
+            "Token refreshed (expires=%s)",
+            time.strftime("%Y-%m-%d %H:%M", time.localtime(self._token_auth.expire_timestamp)),
+        )
 
     async def start(self) -> None:
         self._client = httpx.AsyncClient(verify=self._verify_ssl)
-        self._task = asyncio.create_task(self._poll_loop())
+
+        if self._has_credentials:
+            try:
+                await self._init_token_auth()
+            except Exception:
+                logger.exception("Failed to obtain token via Enlighten, will retry on 401")
+                if not self._token:
+                    logger.warning("No static token — polls will fail until refresh works")
+
+            self._refresh_task = asyncio.create_task(self._token_check_loop())
+
+        self._poll_task = asyncio.create_task(self._poll_loop())
         logger.info(
-            "Envoy backend started — polling %s every %.1fs", self._host, self._poll_interval
+            "Envoy backend started — polling %s every %.1fs (auto-refresh=%s)",
+            self._host,
+            self._poll_interval,
+            self._has_credentials,
         )
 
     async def stop(self) -> None:
-        if self._task is not None:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
+        for task in (self._poll_task, self._refresh_task):
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         if self._client is not None:
             await self._client.aclose()
         logger.info("Envoy backend stopped")
@@ -164,14 +226,47 @@ class EnvoyBackend(Backend):
     def get_meter_data(self) -> MeterData:
         return self._data
 
+    async def _token_check_loop(self) -> None:
+        """Periodically check token expiry and refresh if needed."""
+        while True:
+            await asyncio.sleep(_TOKEN_CHECK_INTERVAL_SECONDS)
+            try:
+                if self._token_auth is not None:
+                    remaining = self._token_auth.expire_timestamp - time.time()
+                    if remaining < _TOKEN_REFRESH_THRESHOLD_SECONDS:
+                        logger.info(
+                            "Token expires in %.1f days, refreshing proactively",
+                            remaining / 86400,
+                        )
+                        await self._refresh_token()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Scheduled token refresh failed")
+
     async def _poll_loop(self) -> None:
         url = f"https://{self._host}/production.json?details=1"
-        headers = {"Authorization": f"Bearer {self._token}"}
 
         while True:
             try:
+                if not self._token:
+                    logger.warning("No token available, skipping poll")
+                    await asyncio.sleep(self._poll_interval)
+                    continue
+
                 assert self._client is not None
+                headers = {"Authorization": f"Bearer {self._token}"}
                 resp = await self._client.get(url, headers=headers, timeout=10.0)
+
+                if resp.status_code == 401 and self._has_credentials:
+                    logger.warning("Got 401 from Envoy, refreshing token")
+                    try:
+                        await self._refresh_token()
+                        headers = {"Authorization": f"Bearer {self._token}"}
+                        resp = await self._client.get(url, headers=headers, timeout=10.0)
+                    except Exception:
+                        logger.exception("Token refresh after 401 failed")
+
                 resp.raise_for_status()
                 data = resp.json()
                 self._data = parse_envoy_response(data, self._phases)

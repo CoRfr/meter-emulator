@@ -4,7 +4,7 @@ import textwrap
 
 import pytest
 
-from meter_emulator.config import load_config
+from meter_emulator.config import EnvoyConfig, load_config
 
 
 def test_load_full_config(tmp_path):
@@ -154,3 +154,36 @@ def test_mac_normalization(tmp_path):
 
     config = load_config(config_file)
     assert config.frontend.shelly.mac == "AABBCCDDEEFF"
+
+
+def test_envoy_config_with_credentials(tmp_path):
+    """Envoy config accepts credentials for auto token refresh."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        textwrap.dedent("""\
+        backend:
+          type: envoy
+          envoy:
+            host: "10.0.0.1"
+            username: "user@example.com"
+            password: "secret"
+            serial: "123456789012"
+    """)
+    )
+
+    config = load_config(config_file)
+    assert config.backend.envoy.username == "user@example.com"
+    assert config.backend.envoy.token is None
+    assert config.backend.envoy.has_credentials is True
+
+
+def test_envoy_config_requires_token_or_credentials():
+    """EnvoyConfig requires either token or full credentials."""
+    with pytest.raises(ValueError, match="token.*username.*password.*serial"):
+        EnvoyConfig(host="10.0.0.1")
+
+
+def test_envoy_config_partial_credentials_require_token():
+    """Partial credentials (missing serial) still require a token."""
+    with pytest.raises(ValueError, match="token.*username.*password.*serial"):
+        EnvoyConfig(host="10.0.0.1", username="user@example.com", password="secret")

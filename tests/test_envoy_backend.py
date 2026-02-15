@@ -1,8 +1,12 @@
-"""Tests for Envoy backend data parsing."""
+"""Tests for Envoy backend data parsing and token refresh."""
 
+import asyncio
+from unittest.mock import AsyncMock, patch
+
+import httpx
 import pytest
 
-from meter_emulator.backends.envoy import parse_envoy_response
+from meter_emulator.backends.envoy import EnvoyBackend, parse_envoy_response
 
 ENVOY_RESPONSE_SINGLE_PHASE = {
     "production": [
@@ -264,3 +268,115 @@ def test_parse_no_net_consumption_falls_back():
     # Falls back to total-consumption
     assert data.phases[0].act_power == 1500.0
     assert data.total_act_power == 1500.0
+
+
+# --- Token refresh tests ---
+
+VALID_PRODUCTION_JSON = {
+    "production": [{"type": "inverters", "wNow": 1000.0, "whLifetime": 10000.0}],
+    "consumption": [
+        {
+            "type": "eim",
+            "measurementType": "total-consumption",
+            "wNow": 500.0,
+            "whLifetime": 5000.0,
+            "rmsVoltage": 230.0,
+            "rmsCurrent": 2.0,
+            "apprntPwr": 500.0,
+            "pwrFactor": 1.0,
+        },
+    ],
+}
+
+
+def test_backend_static_token_only():
+    """Backend works with just a static token (backwards compat)."""
+    backend = EnvoyBackend({"host": "192.168.1.1", "token": "static-jwt"})
+    assert backend._token == "static-jwt"
+    assert backend._has_credentials is False
+    assert backend._token_auth is None
+
+
+def test_backend_with_credentials():
+    """Backend accepts Enlighten credentials."""
+    backend = EnvoyBackend(
+        {
+            "host": "192.168.1.1",
+            "token": "initial-jwt",
+            "username": "user@example.com",
+            "password": "pass",
+            "serial": "123456",
+        }
+    )
+    assert backend._has_credentials is True
+    assert backend._token == "initial-jwt"
+
+
+def test_backend_credentials_without_token():
+    """Backend works with credentials only, no initial token."""
+    backend = EnvoyBackend(
+        {
+            "host": "192.168.1.1",
+            "username": "user@example.com",
+            "password": "pass",
+            "serial": "123456",
+        }
+    )
+    assert backend._has_credentials is True
+    assert backend._token is None
+
+
+async def test_poll_refreshes_token_on_401():
+    """On 401 response, backend refreshes token and retries."""
+    backend = EnvoyBackend(
+        {
+            "host": "192.168.1.1",
+            "token": "old-jwt",
+            "username": "user@example.com",
+            "password": "pass",
+            "serial": "123456",
+        }
+    )
+
+    # Mock the HTTP client: first call returns 401, second returns OK
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    resp_401 = httpx.Response(401, request=httpx.Request("GET", "https://x"))
+    resp_ok = httpx.Response(
+        200, json=VALID_PRODUCTION_JSON, request=httpx.Request("GET", "https://x")
+    )
+    mock_client.get = AsyncMock(side_effect=[resp_401, resp_ok])
+    backend._client = mock_client
+
+    # Mock _refresh_token to update the token
+    async def mock_refresh():
+        backend._token = "new-jwt"
+
+    backend._refresh_token = AsyncMock(side_effect=mock_refresh)
+
+    # Run one iteration of the poll loop (patch sleep to break the loop)
+    with patch("asyncio.sleep", side_effect=asyncio.CancelledError):
+        with pytest.raises(asyncio.CancelledError):
+            await backend._poll_loop()
+
+    # Token was refreshed
+    backend._refresh_token.assert_called_once()
+    assert backend._token == "new-jwt"
+    # Data was parsed from the retry response
+    assert backend._data.total_act_power == 500.0
+
+
+async def test_poll_no_refresh_on_401_without_credentials():
+    """Without credentials, 401 is just logged as a poll failure."""
+    backend = EnvoyBackend({"host": "192.168.1.1", "token": "static-jwt"})
+
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    resp_401 = httpx.Response(401, request=httpx.Request("GET", "https://x"))
+    mock_client.get = AsyncMock(return_value=resp_401)
+    backend._client = mock_client
+
+    with patch("asyncio.sleep", side_effect=asyncio.CancelledError):
+        with pytest.raises(asyncio.CancelledError):
+            await backend._poll_loop()
+
+    # No refresh attempted, data stays empty
+    assert backend._data.total_act_power == 0.0
