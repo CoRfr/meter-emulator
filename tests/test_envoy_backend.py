@@ -380,3 +380,65 @@ async def test_poll_no_refresh_on_401_without_credentials():
 
     # No refresh attempted, data stays empty
     assert backend._data.total_act_power == 0.0
+
+
+async def test_init_token_auth_passes_aiohttp_session():
+    """_init_token_auth creates an aiohttp session and passes it to setup()."""
+    backend = EnvoyBackend(
+        {
+            "host": "192.168.1.1",
+            "username": "user@example.com",
+            "password": "pass",
+            "serial": "123456",
+        }
+    )
+
+    mock_token_auth = AsyncMock()
+    mock_token_auth.token = "fresh-jwt"
+    mock_token_auth.token_type = "owner"
+    mock_token_auth.expire_timestamp = 9999999999.0
+
+    with patch(
+        "pyenphase.auth.EnvoyTokenAuth",
+        return_value=mock_token_auth,
+    ) as mock_cls:
+        await backend._init_token_auth()
+
+        # EnvoyTokenAuth was constructed with correct args
+        mock_cls.assert_called_once_with(
+            "192.168.1.1",
+            cloud_username="user@example.com",
+            cloud_password="pass",
+            envoy_serial="123456",
+            token=None,
+        )
+
+        # setup() was called with an aiohttp.ClientSession
+        import aiohttp
+
+        mock_token_auth.setup.assert_awaited_once()
+        session_arg = mock_token_auth.setup.call_args[0][0]
+        assert isinstance(session_arg, aiohttp.ClientSession)
+
+        # Token was extracted
+        assert backend._token == "fresh-jwt"
+
+        # aiohttp session was stored for reuse
+        assert backend._aiohttp_session is session_arg
+
+    # Cleanup
+    await backend._aiohttp_session.close()
+
+
+async def test_stop_closes_aiohttp_session():
+    """stop() closes the aiohttp session if one was created."""
+    backend = EnvoyBackend({"host": "192.168.1.1", "token": "jwt"})
+
+    mock_session = AsyncMock()
+    backend._aiohttp_session = mock_session
+    backend._client = AsyncMock(spec=httpx.AsyncClient)
+
+    await backend.stop()
+
+    mock_session.close.assert_awaited_once()
+    backend._client.aclose.assert_awaited_once()
