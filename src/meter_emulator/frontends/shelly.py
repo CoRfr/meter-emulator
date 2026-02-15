@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 SHELLY_MODEL = "SPEM-003CEBEU"
 SHELLY_GEN = 2
 SHELLY_APP = "Pro3EM"
-SHELLY_FW = "1.4.4-g6d2a586"
+SHELLY_FW_VER = "1.4.4-g6d2a586"
+SHELLY_FW_ID = "20241011-114455/1.4.4-g6d2a586"
 
 
 # ── Response builders ────────────────────────────────────────────────
@@ -35,8 +36,8 @@ def device_info(mac: str) -> dict[str, Any]:
         "slot": 0,
         "model": SHELLY_MODEL,
         "gen": SHELLY_GEN,
-        "fw_id": SHELLY_FW,
-        "ver": SHELLY_FW,
+        "fw_id": SHELLY_FW_ID,
+        "ver": SHELLY_FW_VER,
         "app": SHELLY_APP,
         "auth_en": False,
         "auth_domain": None,
@@ -260,6 +261,8 @@ class ShellyFrontend(Frontend):
                 return emdata_get_status(data)
             if method == "Shelly.GetConfig":
                 return {"sys": {"device": {"mac": mac, "name": "Shelly Pro 3EM Emulator"}}}
+            if method == "Shelly.GetComponents":
+                return {"components": [], "cfg_rev": 0, "offset": 0, "total": 0}
             return None
 
         @router.websocket("/rpc")
